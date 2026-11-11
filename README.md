@@ -51,3 +51,7 @@ unrouting and cleanup).
 - The SDK is a Microsoft preview; a future Windows update could change it.
 - Apps that are already running may need to rescan MIDI devices to see a new port.
 - No per-route channel filtering or transforms yet.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The files in `MidiPatchbay/sdk/` are Microsoft's Windows MIDI Services SDK, also MIT (see `MidiPatchbay/sdk/NOTICE.md`).
