@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>MidiPatchbay</AssemblyName>
+    <RootNamespace>MidiPatchbay</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+
+    <!-- The Windows MIDI Services SDK only ships 64-bit binaries -->
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+
+    <!-- Generate a C# projection for Windows.Devices.Midi2 from the SDK .winmd.
+         CsWinRT 2.2.0 must be paired with Windows SDK projection 10.0.22621.57 on .NET 8. -->
+    <WindowsSdkPackageVersion>10.0.22621.57</WindowsSdkPackageVersion>
+    <CsWinRTWindowsMetadata>10.0.22621.0</CsWinRTWindowsMetadata>
+    <CsWinRTIncludes>Windows.Devices.Midi2</CsWinRTIncludes>
+    <CsWinRTAotOptimizerEnabled>false</CsWinRTAotOptimizerEnabled>
+    <!-- cswinrt.exe crashes on very long paths; keep its generated sources somewhere short -->
+    <CsWinRTGeneratedFilesDir>$([System.IO.Path]::GetTempPath())MidiPatchbay-cswinrt\$(Configuration)\</CsWinRTGeneratedFilesDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
+    <CsWinRTInputs Include="sdk\Windows.Devices.Midi2.winmd" />
+    <!-- App-local implementation of the SDK; CsWinRT activates classes from it by namespace -->
+    <None Include="sdk\Windows.Devices.Midi2.dll" CopyToOutputDirectory="PreserveNewest" Link="Windows.Devices.Midi2.dll" />
+    <None Include="sdk\Windows.Devices.Midi2.pri" CopyToOutputDirectory="PreserveNewest" Link="Windows.Devices.Midi2.pri" />
+  </ItemGroup>
+
+</Project>
