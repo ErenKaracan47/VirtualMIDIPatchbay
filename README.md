@@ -12,6 +12,8 @@ A loopMIDI-style virtual MIDI port creator with a routing matrix, for Windows 11
 - **Activity lights and counters** show traffic, and the **monitor** decodes messages.
 - Ports exist while the app runs. Closing the window keeps it in the notification area;
   **Exit** from the tray menu removes the ports. Tray menu has **Start with Windows**.
+- **Dark mode**: Theme menu in the status bar (or the tray menu): System, Light or Dark.
+  *System* follows the Windows app theme and switches live.
 - Settings: `%APPDATA%\MidiPatchbay\config.json`.
 
 ## How it works

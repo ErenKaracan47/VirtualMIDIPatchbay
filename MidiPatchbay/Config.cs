@@ -21,6 +21,8 @@ public sealed class AppConfig
     /// <summary>Last seen display name for device endpoints, so offline devices still show in the matrix.</summary>
     public Dictionary<string, string> KnownNames { get; set; } = new();
     public bool HideClockInMonitor { get; set; } = true;
+    /// <summary>System, Light or Dark.</summary>
+    public string Theme { get; set; } = "System";
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

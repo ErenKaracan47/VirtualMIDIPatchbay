@@ -28,7 +28,7 @@ public sealed class MainForm : Form
     readonly TextBox _log = new()
     {
         Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
-        Font = new Font("Consolas", 9f), WordWrap = false, BackColor = SystemColors.Window,
+        Font = new Font("Consolas", 9f), WordWrap = false,
     };
     readonly CheckBox _monitor = new() { Text = "Monitor messages", AutoSize = true };
     readonly CheckBox _hideClock = new() { Text = "Hide clock / active sensing", AutoSize = true };
@@ -47,11 +47,10 @@ public sealed class MainForm : Form
     int _hoverRow = -1, _hoverCol = -1;
     int _tick;
 
-    static readonly Color Accent = Color.FromArgb(0, 120, 212);
-    static readonly Color AccentSoft = Color.FromArgb(204, 228, 247);
-    static readonly Color VirtualTint = Color.FromArgb(240, 246, 252);
-    static readonly Color Led = Color.FromArgb(16, 185, 80);
-    static readonly Color GridLine = Color.FromArgb(225, 225, 225);
+    Palette P = Palette.Light;
+    readonly ToolStripDropDownButton _themeButton = new() { Text = "Theme" };
+    readonly ContextMenuStrip _trayMenu = new();
+    ToolStripMenuItem _trayTheme;
 
     public MainForm(PatchbayEngine engine, bool startMinimized)
     {
@@ -102,6 +101,10 @@ public sealed class MainForm : Form
         addRow.Controls.Add(_add, 1, 0);
         left.Controls.Add(addRow, 0, 1);
 
+        _ports.OwnerDraw = true;
+        _ports.DrawItem += (_, e) => e.DrawDefault = true;
+        _ports.DrawSubItem += (_, e) => e.DrawDefault = true;
+        _ports.DrawColumnHeader += DrawPortsHeader;
         _ports.Columns.Add("Name", 150);
         _ports.Columns.Add("Received", 64, HorizontalAlignment.Right);
         _ports.Columns.Add("Sent", 56, HorizontalAlignment.Right);
@@ -113,7 +116,7 @@ public sealed class MainForm : Form
 
         left.Controls.Add(new Label
         {
-            AutoSize = true, MaximumSize = new Size(280, 0), ForeColor = SystemColors.GrayText, Margin = new Padding(0, 8, 0, 0),
+            AutoSize = true, MaximumSize = new Size(280, 0), Tag = ThemeApplier.MutedTag, Margin = new Padding(0, 8, 0, 0),
             Text = "Every app sees each port as a MIDI input and output with the same name. " +
                    "New ports are connected to themselves, so they work like loopMIDI ports: " +
                    "whatever one app sends to the port, other apps receive from it. " +
@@ -132,7 +135,7 @@ public sealed class MainForm : Form
         matrixHeader.Controls.Add(Title("Routing"));
         matrixHeader.Controls.Add(new Label
         {
-            AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(8, 5, 16, 0),
+            AutoSize = true, Tag = ThemeApplier.MutedTag, Margin = new Padding(8, 5, 16, 0),
             Text = "Rows send to columns. Click a cell to connect or disconnect.",
         });
         matrixHeader.Controls.Add(_refresh);
@@ -155,6 +158,12 @@ public sealed class MainForm : Form
 
         var statusStrip = new StatusStrip();
         statusStrip.Items.Add(_status);
+        statusStrip.Items.Add(_themeButton);
+        foreach (var mode in Enum.GetValues<ThemeMode>())
+        {
+            var m = mode;
+            _themeButton.DropDownItems.Add(new ToolStripMenuItem(m.ToString(), null, (_, _) => SetTheme(m)) { Tag = m });
+        }
 
         Controls.Add(split);
         Controls.Add(statusStrip);
@@ -197,8 +206,7 @@ public sealed class MainForm : Form
         g.ReadOnly = true;
         g.MultiSelect = false;
         g.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        g.BackgroundColor = SystemColors.Window;
-        g.BorderStyle = BorderStyle.None;
+                g.BorderStyle = BorderStyle.None;
         g.CellBorderStyle = DataGridViewCellBorderStyle.None;
         g.EnableHeadersVisualStyles = false;
         g.RowHeadersWidthSizeMode = DataGridViewRowHeadersWidthSizeMode.DisableResizing;
@@ -230,8 +238,15 @@ public sealed class MainForm : Form
         _tray.Icon = Icon;
         _tray.Text = "MIDI Patchbay";
         _tray.Visible = true;
-        var menu = new ContextMenuStrip();
+        var menu = _trayMenu;
         menu.Items.Add("Open MIDI Patchbay", null, (_, _) => ShowFromTray());
+        _trayTheme = new ToolStripMenuItem("Theme");
+        foreach (var mode in Enum.GetValues<ThemeMode>())
+        {
+            var m = mode;
+            _trayTheme.DropDownItems.Add(new ToolStripMenuItem(m.ToString(), null, (_, _) => SetTheme(m)) { Tag = m });
+        }
+        menu.Items.Add(_trayTheme);
         var autostart = new ToolStripMenuItem("Start with Windows") { Checked = IsAutostart(), CheckOnClick = true };
         autostart.CheckedChanged += (_, _) => SetAutostart(autostart.Checked);
         menu.Items.Add(autostart);
@@ -239,6 +254,74 @@ public sealed class MainForm : Form
         menu.Items.Add("Exit (removes the virtual ports)", null, (_, _) => { _reallyExit = true; Close(); });
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowFromTray();
+    }
+
+    // ------------------------------------------------------------------ theme
+
+    ThemeMode CurrentMode => Enum.TryParse<ThemeMode>(_engine.Config.Theme, out var m) ? m : ThemeMode.System;
+
+    void SetTheme(ThemeMode mode)
+    {
+        _engine.Config.Theme = mode.ToString();
+        _engine.SaveConfig();
+        ApplyTheme();
+    }
+
+    void ApplyTheme()
+    {
+        P = Palette.For(CurrentMode);
+        SuspendLayout();
+        BackColor = P.Surface;
+        ForeColor = P.Text;
+        ThemeApplier.Apply(this, P);
+        ThemeApplier.TitleBar(this, P);
+        _trayMenu.Renderer = new ThemedToolStripRenderer(P);
+        _themeButton.Text = "Theme: " + CurrentMode;
+        foreach (ToolStripMenuItem it in _themeButton.DropDownItems) it.Checked = (ThemeMode)it.Tag == CurrentMode;
+        foreach (ToolStripMenuItem it in _trayTheme.DropDownItems) it.Checked = (ThemeMode)it.Tag == CurrentMode;
+        ResumeLayout();
+        Invalidate(true);
+    }
+
+    void OnSystemThemeChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (CurrentMode == ThemeMode.System && e.Category == UserPreferenceCategory.General)
+            BeginInvokeSafe(ApplyTheme);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyTheme();
+        SystemEvents.UserPreferenceChanged += OnSystemThemeChanged;
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        SystemEvents.UserPreferenceChanged -= OnSystemThemeChanged;
+        base.OnHandleDestroyed(e);
+    }
+
+    /// <summary>Name column takes the rest, so no unpainted header area is left on the right.</summary>
+    void FitPortColumns()
+    {
+        if (_ports.Columns.Count < 3) return;
+        int w = _ports.ClientSize.Width - _ports.Columns[1].Width - _ports.Columns[2].Width;
+        if (w > Sc(60) && _ports.Columns[0].Width != w) _ports.Columns[0].Width = w;
+    }
+
+    void DrawPortsHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+    {
+        using (var bg = new SolidBrush(P.Window)) e.Graphics.FillRectangle(bg, e.Bounds);
+        using (var pen = new Pen(P.GridLine))
+        {
+            e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 4, e.Bounds.Right - 1, e.Bounds.Bottom - 4);
+        }
+        var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                    (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left);
+        var r = Rectangle.Inflate(e.Bounds, -Sc(6), 0);
+        TextRenderer.DrawText(e.Graphics, e.Header.Text, _ports.Font, r, P.Muted, flags);
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -251,7 +334,9 @@ public sealed class MainForm : Form
         _split.SplitterDistance = Sc(300);
         _rightSplit.SplitterDistance = (int)(_rightSplit.Height * 0.72);
         _grid.RowTemplate.Height = Sc(28);
-        _ports.Columns[0].Width = Sc(150); _ports.Columns[1].Width = Sc(64); _ports.Columns[2].Width = Sc(56);
+        _ports.Columns[1].Width = Sc(76); _ports.Columns[2].Width = Sc(56);
+        FitPortColumns();
+        _ports.Resize += (_, _) => FitPortColumns();
         Cursor = Cursors.WaitCursor;
         try
         {
@@ -426,9 +511,9 @@ public sealed class MainForm : Form
 
         if (e.RowIndex == -1 && e.ColumnIndex == -1)
         {
-            g.FillRectangle(SystemBrushes.Window, b);
+            using (var bg = new SolidBrush(P.Window)) g.FillRectangle(bg, b);
             TextRenderer.DrawText(g, "From  ↓       To  →", Font, new Rectangle(b.X + Sc(8), b.Bottom - Sc(26), b.Width - Sc(8), Sc(22)),
-                SystemColors.GrayText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                P.Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             e.Handled = true;
             return;
         }
@@ -436,11 +521,11 @@ public sealed class MainForm : Form
         if (e.RowIndex == -1) // column header: destination
         {
             var n = _shown[e.ColumnIndex];
-            g.FillRectangle(new SolidBrush(e.ColumnIndex == _hoverCol ? AccentSoft : n.IsVirtual ? VirtualTint : SystemColors.Window), b);
+            g.FillRectangle(new SolidBrush(e.ColumnIndex == _hoverCol ? P.HeaderHover : n.IsVirtual ? P.VirtualTint : P.Window), b);
             DrawLed(g, new Rectangle(b.X + b.Width / 2 - Sc(4), b.Bottom - Sc(14), Sc(8), Sc(8)), now - n.LastOutTick < 150, n.Online);
             var state = g.Save();
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            var color = n.Online ? SystemColors.ControlText : SystemColors.GrayText;
+            var color = n.Online ? P.Text : P.Muted;
             var text = n.Online ? n.Name : n.Name + " (offline)";
             using (var font = n.IsVirtual ? new Font(Font, FontStyle.Bold) : new Font(Font, FontStyle.Regular))
             {
@@ -452,7 +537,7 @@ public sealed class MainForm : Form
                 g.DrawString(label, font, br, 0, 0);
             }
             g.Restore(state);
-            using var p = new Pen(GridLine);
+            using var p = new Pen(P.GridLine);
             g.DrawLine(p, b.Right - 1, b.Top + 4, b.Right - 1, b.Bottom);
             e.Handled = true;
             return;
@@ -461,14 +546,14 @@ public sealed class MainForm : Form
         if (e.ColumnIndex == -1) // row header: source
         {
             var n = _shown[e.RowIndex];
-            g.FillRectangle(new SolidBrush(e.RowIndex == _hoverRow ? AccentSoft : n.IsVirtual ? VirtualTint : SystemColors.Window), b);
+            g.FillRectangle(new SolidBrush(e.RowIndex == _hoverRow ? P.HeaderHover : n.IsVirtual ? P.VirtualTint : P.Window), b);
             DrawLed(g, new Rectangle(b.Right - Sc(16), b.Y + b.Height / 2 - Sc(4), Sc(8), Sc(8)), now - n.LastInTick < 150, n.Online);
-            var color = n.Online ? SystemColors.ControlText : SystemColors.GrayText;
+            var color = n.Online ? P.Text : P.Muted;
             var text = n.Online ? n.Name : n.Name + " (offline)";
             using (var font = n.IsVirtual ? new Font(Font, FontStyle.Bold) : new Font(Font, FontStyle.Regular))
                 TextRenderer.DrawText(g, text, font, new Rectangle(b.X + Sc(8), b.Y, b.Width - Sc(30), b.Height), color,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-            using var p = new Pen(GridLine);
+            using var p = new Pen(P.GridLine);
             g.DrawLine(p, b.Left, b.Bottom - 1, b.Right, b.Bottom - 1);
             e.Handled = true;
             return;
@@ -480,8 +565,8 @@ public sealed class MainForm : Form
         bool hover = e.RowIndex == _hoverRow || e.ColumnIndex == _hoverCol;
         bool focused = _grid.CurrentCell != null && _grid.Focused &&
                        _grid.CurrentCell.RowIndex == e.RowIndex && _grid.CurrentCell.ColumnIndex == e.ColumnIndex;
-        g.FillRectangle(new SolidBrush(hover ? Color.FromArgb(240, 247, 253) : SystemColors.Window), b);
-        using (var p = new Pen(GridLine))
+        g.FillRectangle(new SolidBrush(hover ? P.CellHover : P.Window), b);
+        using (var p = new Pen(P.GridLine))
         {
             g.DrawLine(p, b.Left, b.Bottom - 1, b.Right, b.Bottom - 1);
             g.DrawLine(p, b.Right - 1, b.Top, b.Right - 1, b.Bottom);
@@ -493,8 +578,8 @@ public sealed class MainForm : Form
         bool live = src.Online && dst.Online;
         if (routed)
         {
-            var fill = live ? Accent : Color.Silver;
-            if (live && now - src.LastInTick < 150) fill = ControlPaint.Light(Accent, 0.4f);
+            var fill = live ? P.Accent : P.RoutedOffline;
+            if (live && now - src.LastInTick < 150) fill = ControlPaint.Light(P.Accent, 0.4f);
             using var path = Rounded(box, Sc(4));
             using var br = new SolidBrush(fill);
             g.FillPath(br, path);
@@ -512,16 +597,16 @@ public sealed class MainForm : Form
         else
         {
             using var path = Rounded(box, Sc(4));
-            using var pen = new Pen(hover ? Accent : Color.FromArgb(200, 200, 200));
+            using var pen = new Pen(hover ? P.AccentHover : P.BoxBorder);
             g.DrawPath(pen, path);
         }
         if (focused) ControlPaint.DrawFocusRectangle(g, Rectangle.Inflate(box, Sc(3), Sc(3)));
         e.Handled = true;
     }
 
-    static void DrawLed(Graphics g, Rectangle r, bool on, bool online)
+    void DrawLed(Graphics g, Rectangle r, bool on, bool online)
     {
-        using var br = new SolidBrush(on ? Led : online ? Color.FromArgb(215, 215, 215) : Color.FromArgb(235, 235, 235));
+        using var br = new SolidBrush(on ? P.Led : online ? P.LedIdle : P.LedOffline);
         g.FillEllipse(br, r);
     }
 
@@ -602,7 +687,7 @@ public sealed class MainForm : Form
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
-            using var bg = new SolidBrush(Accent);
+            using var bg = new SolidBrush(Palette.Light.Accent);
             using (var path = Rounded(new Rectangle(1, 1, 30, 30), 7)) g.FillPath(bg, path);
             using var dot = new SolidBrush(Color.White);
             // 5-pin DIN style
